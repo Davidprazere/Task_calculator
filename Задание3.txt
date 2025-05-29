@@ -1,0 +1,511 @@
+import java.util.*;
+import java.io.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+// Основной класс системы
+public class VotingSystem {
+    private static List<User> users = new ArrayList<>();
+    private static List<Voting> votings = new ArrayList<>();
+    private static List<ElectionCommission> commissions = new ArrayList<>();
+    private static User currentUser = null;
+
+    public static void main(String[] args) {
+        initializeTestData();
+        showLoginMenu();
+    }
+
+    private static void initializeTestData() {
+        // Инициализация тестовых данных
+        users.add(new Admin("admin", "admin123", "Администратор Системы"));
+        users.add(new CentralElectionCommission("cec", "cec123", "ЦИК Представитель"));
+        users.add(new Candidate("candidate1", "cand123", "Иванов Иван Иванович"));
+        users.add(new Voter("voter1", "voter123", "Петров Петр Петрович", "123-456-789 00"));
+    }
+
+    private static void showLoginMenu() {
+        Scanner scanner = new Scanner(System.in);
+        
+        while (true) {
+            System.out.println("\n=== Система электронного голосования ===");
+            System.out.println("1. Войти");
+            System.out.println("2. Зарегистрироваться");
+            System.out.println("3. Выход");
+            System.out.print("Выберите действие: ");
+            
+            int choice = scanner.nextInt();
+            scanner.nextLine(); // consume newline
+            
+            switch (choice) {
+                case 1:
+                    loginUser(scanner);
+                    break;
+                case 2:
+                    registerUser(scanner);
+                    break;
+                case 3:
+                    System.out.println("Выход из системы.");
+                    return;
+                default:
+                    System.out.println("Неверный выбор. Попробуйте снова.");
+            }
+        }
+    }
+
+    private static void loginUser(Scanner scanner) {
+        System.out.print("Введите логин: ");
+        String username = scanner.nextLine();
+        System.out.print("Введите пароль: ");
+        String password = scanner.nextLine();
+        
+        for (User user : users) {
+            if (user.getUsername().equals(username) && user.authenticate(password)) {
+                currentUser = user;
+                System.out.println("Вход выполнен успешно!");
+                showRoleMenu();
+                return;
+            }
+        }
+        
+        System.out.println("Неверный логин или пароль.");
+    }
+
+    private static void registerUser(Scanner scanner) {
+        System.out.println("\n=== Регистрация нового пользователя ===");
+        System.out.print("Введите ФИО: ");
+        String fullName = scanner.nextLine();
+        System.out.print("Введите дату рождения (дд.мм.гггг): ");
+        String birthDate = scanner.nextLine();
+        System.out.print("Введите СНИЛС (если есть): ");
+        String snils = scanner.nextLine();
+        System.out.print("Придумайте логин: ");
+        String username = scanner.nextLine();
+        System.out.print("Придумайте пароль: ");
+        String password = scanner.nextLine();
+        
+        // Проверка уникальности логина
+        for (User user : users) {
+            if (user.getUsername().equals(username)) {
+                System.out.println("Пользователь с таким логином уже существует.");
+                return;
+            }
+        }
+        
+        users.add(new Voter(username, password, fullName, snils));
+        System.out.println("Регистрация успешно завершена!");
+    }
+
+    private static void showRoleMenu() {
+        if (currentUser == null) return;
+        
+        Scanner scanner = new Scanner(System.in);
+        
+        while (currentUser != null) {
+            System.out.println("\n=== Главное меню (" + currentUser.getRole() + ") ===");
+            
+            if (currentUser instanceof Admin) {
+                showAdminMenu(scanner);
+            } else if (currentUser instanceof CentralElectionCommission) {
+                showCECMenu(scanner);
+            } else if (currentUser instanceof Candidate) {
+                showCandidateMenu(scanner);
+            } else if (currentUser instanceof Voter) {
+                showVoterMenu(scanner);
+            }
+        }
+    }
+
+    private static void showAdminMenu(Scanner scanner) {
+        System.out.println("1. Просмотр списка пользователей");
+        System.out.println("2. Удаление пользователя");
+        System.out.println("3. Просмотр комиссий");
+        System.out.println("4. Удаление комиссии");
+        System.out.println("5. Создание ЦИК");
+        System.out.println("6. Просмотр и удаление кандидатов");
+        System.out.println("7. Выход из системы");
+        System.out.print("Выберите действие: ");
+        
+        int choice = scanner.nextInt();
+        scanner.nextLine(); // consume newline
+        
+        switch (choice) {
+            case 1:
+                viewUsers();
+                break;
+            case 2:
+                deleteUser(scanner);
+                break;
+            case 3:
+                viewCommissions();
+                break;
+            case 4:
+                deleteCommission(scanner);
+                break;
+            case 5:
+                createCommission(scanner);
+                break;
+            case 6:
+                viewAndDeleteCandidates(scanner);
+                break;
+            case 7:
+                currentUser = null;
+                break;
+            default:
+                System.out.println("Неверный выбор.");
+        }
+    }
+
+    private static void showCECMenu(Scanner scanner) {
+        System.out.println("1. Создать голосование");
+        System.out.println("2. Добавить наблюдателя");
+        System.out.println("3. Печать результатов (PDF)");
+        System.out.println("4. Группировка результатов");
+        System.out.println("5. Официальные результаты");
+        System.out.println("6. Выход из системы");
+        System.out.print("Выберите действие: ");
+        
+        int choice = scanner.nextInt();
+        scanner.nextLine(); // consume newline
+        
+        switch (choice) {
+            case 1:
+                createVoting(scanner);
+                break;
+            case 2:
+                addObserver(scanner);
+                break;
+            case 3:
+                printResultsToPDF(scanner);
+                break;
+            case 4:
+                groupResults(scanner);
+                break;
+            case 5:
+                showOfficialResults();
+                break;
+            case 6:
+                currentUser = null;
+                break;
+            default:
+                System.out.println("Неверный выбор.");
+        }
+    }
+
+    private static void showCandidateMenu(Scanner scanner) {
+        System.out.println("1. Заполнить данные о себе");
+        System.out.println("2. Результаты предыдущих выборов");
+        System.out.println("3. Просмотр участия в голосованиях");
+        System.out.println("4. Выход из системы");
+        System.out.print("Выберите действие: ");
+        
+        int choice = scanner.nextInt();
+        scanner.nextLine(); // consume newline
+        
+        switch (choice) {
+            case 1:
+                fillCandidateData(scanner);
+                break;
+            case 2:
+                showPreviousResults();
+                break;
+            case 3:
+                showParticipationHistory();
+                break;
+            case 4:
+                currentUser = null;
+                break;
+            default:
+                System.out.println("Неверный выбор.");
+        }
+    }
+
+    private static void showVoterMenu(Scanner scanner) {
+        System.out.println("1. Проголосовать");
+        System.out.println("2. Просмотреть список кандидатов");
+        System.out.println("3. История голосований");
+        System.out.println("4. Выход из системы");
+        System.out.print("Выберите действие: ");
+        
+        int choice = scanner.nextInt();
+        scanner.nextLine(); // consume newline
+        
+        switch (choice) {
+            case 1:
+                vote(scanner);
+                break;
+            case 2:
+                viewCandidates();
+                break;
+            case 3:
+                viewVotingHistory();
+                break;
+            case 4:
+                currentUser = null;
+                break;
+            default:
+                System.out.println("Неверный выбор.");
+        }
+    }
+
+    // Реализация методов для каждой роли...
+    private static void viewUsers() {
+        System.out.println("\n=== Список пользователей ===");
+        for (User user : users) {
+            System.out.println(user);
+        }
+    }
+
+    private static void deleteUser(Scanner scanner) {
+        viewUsers();
+        System.out.print("Введите логин пользователя для удаления: ");
+        String username = scanner.nextLine();
+        
+        User toRemove = null;
+        for (User user : users) {
+            if (user.getUsername().equals(username)) {
+                toRemove = user;
+                break;
+            }
+        }
+        
+        if (toRemove != null) {
+            users.remove(toRemove);
+            System.out.println("Пользователь удален.");
+        } else {
+            System.out.println("Пользователь не найден.");
+        }
+    }
+
+    private static void createVoting(Scanner scanner) {
+        System.out.println("\n=== Создание голосования ===");
+        System.out.print("Введите название голосования: ");
+        String title = scanner.nextLine();
+        System.out.print("Введите описание: ");
+        String description = scanner.nextLine();
+        System.out.print("Введите дату окончания (дд.мм.гггг): ");
+        String endDateStr = scanner.nextLine();
+        
+        try {
+            LocalDate endDate = LocalDate.parse(endDateStr, DateTimeFormatter.ofPattern("dd.MM.yyyy"));
+            votings.add(new Voting(title, description, endDate));
+            System.out.println("Голосование создано успешно!");
+        } catch (Exception e) {
+            System.out.println("Неверный формат даты. Используйте дд.мм.гггг");
+        }
+    }
+
+    private static void vote(Scanner scanner) {
+        System.out.println("\n=== Активные голосования ===");
+        for (Voting voting : votings) {
+            if (voting.isActive()) {
+                System.out.println(voting);
+            }
+        }
+        
+        System.out.print("Введите ID голосования: ");
+        int votingId = scanner.nextInt();
+        scanner.nextLine();
+        
+        Voting selectedVoting = null;
+        for (Voting voting : votings) {
+            if (voting.getId() == votingId && voting.isActive()) {
+                selectedVoting = voting;
+                break;
+            }
+        }
+        
+        if (selectedVoting == null) {
+            System.out.println("Голосование не найдено или уже завершено.");
+            return;
+        }
+        
+        System.out.println("\n=== Кандидаты ===");
+        List<Candidate> candidates = getCandidates();
+        for (int i = 0; i < candidates.size(); i++) {
+            System.out.println((i+1) + ". " + candidates.get(i).getFullName());
+        }
+        
+        System.out.print("Выберите кандидата: ");
+        int candidateChoice = scanner.nextInt();
+        scanner.nextLine();
+        
+        if (candidateChoice < 1 || candidateChoice > candidates.size()) {
+            System.out.println("Неверный выбор.");
+            return;
+        }
+        
+        selectedVoting.addVote(candidates.get(candidateChoice-1), (Voter)currentUser);
+        System.out.println("Ваш голос учтен!");
+    }
+
+    // Другие методы реализации функционала...
+
+    private static List<Candidate> getCandidates() {
+        List<Candidate> candidates = new ArrayList<>();
+        for (User user : users) {
+            if (user instanceof Candidate) {
+                candidates.add((Candidate)user);
+            }
+        }
+        return candidates;
+    }
+}
+
+// Базовый класс пользователя
+abstract class User {
+    private String username;
+    private String password;
+    private String fullName;
+    
+    public User(String username, String password, String fullName) {
+        this.username = username;
+        this.password = password;
+        this.fullName = fullName;
+    }
+    
+    public boolean authenticate(String password) {
+        return this.password.equals(password);
+    }
+    
+    public String getUsername() {
+        return username;
+    }
+    
+    public String getFullName() {
+        return fullName;
+    }
+    
+    public abstract String getRole();
+    
+    @Override
+    public String toString() {
+        return String.format("%s (%s) - %s", fullName, username, getRole());
+    }
+}
+
+// Классы для разных ролей
+class Admin extends User {
+    public Admin(String username, String password, String fullName) {
+        super(username, password, fullName);
+    }
+    
+    @Override
+    public String getRole() {
+        return "Администратор";
+    }
+}
+
+class CentralElectionCommission extends User {
+    public CentralElectionCommission(String username, String password, String fullName) {
+        super(username, password, fullName);
+    }
+    
+    @Override
+    public String getRole() {
+        return "ЦИК";
+    }
+}
+
+class Candidate extends User {
+    private String bio;
+    private String program;
+    
+    public Candidate(String username, String password, String fullName) {
+        super(username, password, fullName);
+    }
+    
+    public void setBio(String bio) {
+        this.bio = bio;
+    }
+    
+    public void setProgram(String program) {
+        this.program = program;
+    }
+    
+    @Override
+    public String getRole() {
+        return "Кандидат";
+    }
+}
+
+class Voter extends User {
+    private String snils;
+    private List<Voting> participatedVotings = new ArrayList<>();
+    
+    public Voter(String username, String password, String fullName, String snils) {
+        super(username, password, fullName);
+        this.snils = snils;
+    }
+    
+    public void addVotingParticipation(Voting voting) {
+        participatedVotings.add(voting);
+    }
+    
+    @Override
+    public String getRole() {
+        return "Избиратель";
+    }
+}
+
+// Класс голосования
+class Voting {
+    private static int nextId = 1;
+    
+    private int id;
+    private String title;
+    private String description;
+    private LocalDate endDate;
+    private Map<Candidate, Integer> votes = new HashMap<>();
+    private List<Voter> voters = new ArrayList<>();
+    
+    public Voting(String title, String description, LocalDate endDate) {
+        this.id = nextId++;
+        this.title = title;
+        this.description = description;
+        this.endDate = endDate;
+    }
+    
+    public int getId() {
+        return id;
+    }
+    
+    public boolean isActive() {
+        return LocalDate.now().isBefore(endDate);
+    }
+    
+    public void addVote(Candidate candidate, Voter voter) {
+        if (!isActive()) return;
+        if (voters.contains(voter)) return;
+        
+        votes.put(candidate, votes.getOrDefault(candidate, 0) + 1);
+        voters.add(voter);
+        voter.addVotingParticipation(this);
+    }
+    
+    public Map<Candidate, Integer> getResults() {
+        return new HashMap<>(votes);
+    }
+    
+    @Override
+    public String toString() {
+        return String.format("Голосование #%d: %s (до %s)", id, title, endDate.format(DateTimeFormatter.ofPattern("dd.MM.yyyy")));
+    }
+}
+
+// Класс избирательной комиссии
+class ElectionCommission {
+    private String name;
+    private String address;
+    private List<User> members = new ArrayList<>();
+    
+    public ElectionCommission(String name, String address) {
+        this.name = name;
+        this.address = address;
+    }
+    
+    public void addMember(User user) {
+        members.add(user);
+    }
+    
+    // Другие методы комиссии
+}

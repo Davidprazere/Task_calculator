@@ -1,0 +1,212 @@
+import java.util.*;
+import java.util.concurrent.*;
+import java.sql.*;
+
+public class DataApi {
+    // Кэш для хранения read-only данных
+    private static final Map<String, Object> cache = new ConcurrentHashMap<>();
+    // Таймер для обновления данных
+    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    // Флаг подключения к БД
+    private static Connection dbConnection = null;
+    
+    // Инициализация API
+    public static void initialize(String dbUrl, String username, String password) {
+        connectToDatabase(dbUrl, username, password);
+        startDataRefreshTimer();
+    }
+    
+    // Подключение к базе данных
+    private static void connectToDatabase(String dbUrl, String username, String password) {
+        try {
+            Class.forName("org.postgresql.Driver");
+            dbConnection = DriverManager.getConnection(dbUrl, username, password);
+            System.out.println("Подключение к БД установлено");
+        } catch (Exception e) {
+            System.err.println("Ошибка подключения к БД: " + e.getMessage());
+        }
+    }
+    
+    // Запуск таймера для обновления данных
+    private static void startDataRefreshTimer() {
+        // Обновление данных каждые 5 минут
+        scheduler.scheduleAtFixedRate(() -> {
+            refreshCache();
+            System.out.println("Кэш обновлен по таймеру");
+        }, 0, 5, TimeUnit.MINUTES);
+    }
+    
+    // Обновление кэша
+    private static void refreshCache() {
+        try {
+            Statement stmt = dbConnection.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT * FROM data WHERE is_read_only = true");
+            
+            Map<String, Object> newCache = new HashMap<>();
+            while (rs.next()) {
+                String key = rs.getString("key");
+                Object value = rs.getObject("value");
+                newCache.put(key, value);
+            }
+            
+            synchronized (cache) {
+                cache.clear();
+                cache.putAll(newCache);
+            }
+            
+            rs.close();
+            stmt.close();
+        } catch (SQLException e) {
+            System.err.println("Ошибка обновления кэша: " + e.getMessage());
+        }
+    }
+    
+    // Получение данных
+    public static Object getData(String key) {
+        // Сначала проверяем кэш
+        if (cache.containsKey(key)) {
+            System.out.println("Данные получены из кэша: " + key);
+            return cache.get(key);
+        }
+        
+        // Если нет в кэше, запрашиваем из БД
+        try {
+            PreparedStatement stmt = dbConnection.prepareStatement(
+                "SELECT value, is_read_only FROM data WHERE key = ?");
+            stmt.setString(1, key);
+            ResultSet rs = stmt.executeQuery();
+            
+            if (rs.next()) {
+                Object value = rs.getObject("value");
+                boolean isReadOnly = rs.getBoolean("is_read_only");
+                
+                // Если данные read-only, добавляем в кэш
+                if (isReadOnly) {
+                    synchronized (cache) {
+                        cache.put(key, value);
+                    }
+                    System.out.println("Данные добавлены в кэш: " + key);
+                }
+                
+                rs.close();
+                stmt.close();
+                return value;
+            }
+            
+            rs.close();
+            stmt.close();
+        } catch (SQLException e) {
+            System.err.println("Ошибка получения данных: " + e.getMessage());
+        }
+        
+        return null;
+    }
+    
+    // Сохранение данных
+    public static void saveData(String key, Object value, boolean isReadOnly) {
+        try {
+            // Проверяем, существует ли запись
+            PreparedStatement checkStmt = dbConnection.prepareStatement(
+                "SELECT 1 FROM data WHERE key = ?");
+            checkStmt.setString(1, key);
+            ResultSet rs = checkStmt.executeQuery();
+            
+            if (rs.next()) {
+                // Обновляем существующую запись
+                PreparedStatement updateStmt = dbConnection.prepareStatement(
+                    "UPDATE data SET value = ?, is_read_only = ? WHERE key = ?");
+                updateStmt.setObject(1, value);
+                updateStmt.setBoolean(2, isReadOnly);
+                updateStmt.setString(3, key);
+                updateStmt.executeUpdate();
+                updateStmt.close();
+                
+                // Удаляем из кэша, если данные больше не read-only
+                if (!isReadOnly) {
+                    synchronized (cache) {
+                        cache.remove(key);
+                    }
+                }
+            } else {
+                // Создаем новую запись
+                PreparedStatement insertStmt = dbConnection.prepareStatement(
+                    "INSERT INTO data (key, value, is_read_only) VALUES (?, ?, ?)");
+                insertStmt.setString(1, key);
+                insertStmt.setObject(2, value);
+                insertStmt.setBoolean(3, isReadOnly);
+                insertStmt.executeUpdate();
+                insertStmt.close();
+            }
+            
+            rs.close();
+            checkStmt.close();
+            
+            // Если данные read-only, обновляем кэш
+            if (isReadOnly) {
+                synchronized (cache) {
+                    cache.put(key, value);
+                }
+            }
+            
+            System.out.println("Данные сохранены: " + key);
+        } catch (SQLException e) {
+            System.err.println("Ошибка сохранения данных: " + e.getMessage());
+        }
+    }
+    
+    // Выгрузка результатов (формирование отчета)
+    public static void exportResults(String outputPath, List<String> keys) {
+        try {
+            // Создаем файл для выгрузки
+            PrintWriter writer = new PrintWriter(outputPath);
+            
+            // Записываем заголовок
+            writer.println("Key,Value,IsReadOnly");
+            
+            // Записываем данные
+            for (String key : keys) {
+                Object value = getData(key);
+                boolean isReadOnly = cache.containsKey(key);
+                writer.println(key + "," + value + "," + isReadOnly);
+            }
+            
+            writer.close();
+            System.out.println("Результаты выгружены в: " + outputPath);
+        } catch (Exception e) {
+            System.err.println("Ошибка выгрузки результатов: " + e.getMessage());
+        }
+    }
+    
+    // Закрытие соединений
+    public static void shutdown() {
+        try {
+            if (dbConnection != null && !dbConnection.isClosed()) {
+                dbConnection.close();
+            }
+            scheduler.shutdown();
+            System.out.println("API остановлен");
+        } catch (SQLException e) {
+            System.err.println("Ошибка при закрытии соединения: " + e.getMessage());
+        }
+    }
+    
+    // Пример использования
+    public static void main(String[] args) {
+        // Инициализация API
+        DataApi.initialize("jdbc:postgresql://localhost:5432/mydb", "user", "password");
+        
+        // Сохранение данных
+        DataApi.saveData("config.max_users", 100, true); // read-only
+        DataApi.saveData("current_users", 25, false); // не read-only
+        
+        // Получение данных
+        System.out.println("Max users: " + DataApi.getData("config.max_users"));
+        System.out.println("Current users: " + DataApi.getData("current_users"));
+        
+        // Выгрузка результатов
+        DataApi.exportResults("report.csv", Arrays.asList("config.max_users", "current_users"));
+        
+        // Завершение работы
+        DataApi.shutdown();
+    }
+}
